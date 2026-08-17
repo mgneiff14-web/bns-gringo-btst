@@ -1,0 +1,22 @@
+{
+  "rewrites": [
+    { "source": "/thanks", "destination": "/" },
+    { "source": "/thanks/", "destination": "/" },
+    { "source": "/privacy", "destination": "/" },
+    { "source": "/privacy/", "destination": "/" },
+    { "source": "/terms", "destination": "/" },
+    { "source": "/terms/", "destination": "/" },
+    { "source": "/refund", "destination": "/" },
+    { "source": "/refund/", "destination": "/" },
+    { "source": "/contact", "destination": "/" },
+    { "source": "/contact/", "destination": "/" },
+    { "source": "/lp", "destination": "/" },
+    { "source": "/lp/", "destination": "/" },
+    { "source": "/tasks-app", "destination": "/" },
+    { "source": "/tasks-app/:path*", "destination": "/" },
+    { "source": "/admin", "destination": "/" },
+    { "source": "/admin/:path*", "destination": "/" },
+    { "source": "/landingpage", "destination": "/" },
+    { "source": "/landingpage/:path*", "destination": "/" }
+  ]
+}
