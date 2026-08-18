@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Wait a moment!</title>
+<script src="/ds24-tracking.js"></script>
 <style>
   :root{
     --foreground: hsl(0 0% 0%);
@@ -215,6 +216,11 @@ function buildCheckoutUrl(){
     if(t[k]) q.push(k + '=' + encodeURIComponent(t[k]));
   });
   if(tk.ttp) q.push('ttp=' + encodeURIComponent(tk.ttp));
+  /* sid1-sid5 are the only fields the affiliate postback hands back to us. */
+  if(typeof window.ds24TrackingParams === 'function'){
+    var sids = window.ds24TrackingParams('');
+    Object.keys(sids).forEach(function(k){ q.push(k + '=' + encodeURIComponent(sids[k])); });
+  }
   if(!q.length) return url;
   return url + (url.indexOf('?') >= 0 ? '&' : '?') + q.join('&');
 }

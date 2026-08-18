@@ -298,6 +298,7 @@ function RootShell({ children }: { children: ReactNode }) {
         />
         <script src="/clarity.js" />
         <script src="/param-forwarder.js" />
+        <script src="/ds24-tracking.js" />
         <script src="/pixel-loader.js" async defer />
         <script src="/tiktok.js" />
 

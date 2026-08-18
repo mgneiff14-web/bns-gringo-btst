@@ -3,77 +3,81 @@ import { createFileRoute } from "@tanstack/react-router";
 const TIKTOK_EVENTS_API = "https://business-api.tiktok.com/open_api/v1.3/event/track/";
 const DEFAULT_PIXEL_ID = "D9K1G33C77U820ARO52G";
 
-type IpnPayload = Record<string, string>;
+/**
+ * Digistore24 affiliate S2S postback -> TikTok Ads Events API.
+ *
+ * This is the AFFILIATE postback (Account > S2S Postback), not the vendor IPN
+ * (Settings > IPN, which an affiliate account does not have). Consequences:
+ *
+ *   - it arrives as a GET, not a POST
+ *   - there is no sha_sign to verify, so the URL carries a shared secret instead
+ *   - only the macros we put in the URL arrive, and Digistore24 offers no macro
+ *     for the buyer email, ttclid or ttp — those come from sid1..sid5, which
+ *     ds24-tracking.js writes onto the checkout link
+ *
+ * Utmify is NOT handled here: it has its own native Digistore24 postback that
+ * reads the {utm_*} macros. This endpoint only covers what that cannot.
+ *
+ * URL to register in Digistore24 (one line, replace HOST and TOKEN):
+ *   https://HOST/api/public/digistore24-ipn?token=TOKEN
+ *     &transactionType={transaction_type}&transactionId={transaction_id}
+ *     &orderId={order_id}&productId={product_id}&productName={product_name}
+ *     &amount={amount_brutto_abs}&currency={currency}&country={country}
+ *     &isTest={is_test}&datetime={datetime_utc}
+ *     &s1={sid1}&s2={sid2}&s3={sid3}&s4={sid4}&s5={sid5}&r={random}
+ */
+
+type Tracking = {
+  email: string;
+  ttclid: string;
+  ttp: string;
+};
 
 export const Route = createFileRoute("/api/public/digistore24-ipn")({
   server: {
     handlers: {
-      POST: async ({ request }) => {
-        const passphrase = process.env.DIGISTORE24_IPN_PASSPHRASE;
-        if (!passphrase) {
-          console.error("[Digistore24 IPN] DIGISTORE24_IPN_PASSPHRASE is not configured");
-          return textResponse("ERROR: IPN passphrase is not configured", 500);
+      GET: async ({ request }) => {
+        const expectedToken = process.env.DIGISTORE24_POSTBACK_TOKEN;
+        if (!expectedToken) {
+          console.error("[DS24 Postback] DIGISTORE24_POSTBACK_TOKEN is not configured");
+          return textResponse("ERROR: postback token is not configured", 500);
         }
 
-        let payload: IpnPayload;
-        try {
-          payload = await parseIpnPayload(request);
-        } catch (error) {
-          console.error("[Digistore24 IPN] Invalid request body", error);
-          return textResponse("ERROR: invalid request body", 400);
+        const params = new URL(request.url).searchParams;
+
+        if (!secureEqual(params.get("token") ?? "", expectedToken)) {
+          console.error("[DS24 Postback] Invalid token");
+          return textResponse("ERROR: invalid token", 401);
         }
 
-        const receivedSignature = payload.sha_sign ?? payload.SHASIGN ?? "";
-        const expectedSignature = await createDigistoreSignature(passphrase, payload);
-        if (!secureEqual(receivedSignature.toUpperCase(), expectedSignature)) {
-          console.error("[Digistore24 IPN] Invalid SHA-512 signature", {
-            content_type: request.headers.get("content-type") ?? "",
-            keys: Object.keys(payload).sort(compareAscii),
-          });
-          return textResponse("ERROR: invalid sha signature", 401);
-        }
-
-        const event = payload.event ?? "";
-        if (event === "connection_test") {
-          return textResponse("OK");
-        }
-        if (event !== "on_payment") {
-          console.log("[Digistore24 IPN] Ignoring non-payment event", event);
+        // {transaction_type} is payment | refund | chargeback. Only a payment maps
+        // to CompletePayment; TikTok has no server event for the other two.
+        const transactionType = (params.get("transactionType") ?? "").toLowerCase();
+        if (transactionType !== "payment") {
+          console.log("[DS24 Postback] Ignoring transaction type", transactionType || "(empty)");
           return textResponse("OK");
         }
 
-        if ((payload.api_mode ?? "").toLowerCase() !== "live") {
-          console.log("[Digistore24 IPN] Test payment accepted without production event");
+        // {is_test} is "1" for a test payment and empty for a real one.
+        if ((params.get("isTest") ?? "").trim() === "1") {
+          console.log("[DS24 Postback] Test payment acknowledged without pixel event");
           return textResponse("OK");
         }
 
-        const accessToken = process.env.TIKTOK_ACCESS_TOKEN;
-        if (!accessToken) {
-          console.error("[Digistore24 IPN] TIKTOK_ACCESS_TOKEN is not configured");
-          return textResponse("ERROR: TikTok access token is not configured", 500);
-        }
+        const tracking = unpackTracking(params);
 
-        const pixelIds = (process.env.TIKTOK_PIXEL_IDS ?? DEFAULT_PIXEL_ID)
-          .split(",")
-          .map((pixelId) => pixelId.trim())
-          .filter(Boolean);
-
-        if (pixelIds.length === 0) {
-          return textResponse("ERROR: no TikTok pixel is configured", 500);
-        }
-
-        const results = await Promise.all(
-          pixelIds.map((pixelId) => sendCompletePayment(accessToken, pixelId, payload)),
-        );
-        if (results.some((sent) => !sent)) {
+        const delivered = await sendToTikTok(params, tracking);
+        if (!delivered) {
+          // Non-2xx on purpose so Digistore24 re-sends instead of losing the sale.
           return textResponse("ERROR: TikTok event delivery failed", 502);
         }
 
-        console.log("[Digistore24 IPN] Purchase delivered", {
-          event_id: buildEventId(payload),
-          order_id: payload.order_id ?? "",
-          payment_id: payload.payment_id ?? "",
-          pixels: pixelIds,
+        console.log("[DS24 Postback] Purchase delivered", {
+          order_id: params.get("orderId") ?? "",
+          event_id: buildEventId(params),
+          has_ttclid: Boolean(tracking.ttclid),
+          has_ttp: Boolean(tracking.ttp),
+          has_email: Boolean(tracking.email),
         });
         return textResponse("OK");
       },
@@ -81,70 +85,83 @@ export const Route = createFileRoute("/api/public/digistore24-ipn")({
   },
 });
 
-async function parseIpnPayload(request: Request): Promise<IpnPayload> {
-  const contentType = request.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    const json = (await request.json()) as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.entries(json).map(([key, value]) => [key, value == null ? "" : String(value)]),
-    );
-  }
+/* ---------------------------------------------------------------- tracking */
 
-  if (
-    contentType.includes("application/x-www-form-urlencoded") ||
-    contentType.includes("multipart/form-data")
-  ) {
-    const form = await request.formData();
-    const payload: IpnPayload = {};
-    form.forEach((value, key) => {
-      if (typeof value === "string") payload[key] = value;
-    });
-    return payload;
-  }
+/**
+ * Reassembles the base64url payload that ds24-tracking.js split across sid1..sid5.
+ * A truncated or absent payload degrades to empty tracking rather than failing the
+ * postback — the purchase still reaches TikTok, just with weaker matching.
+ */
+function unpackTracking(params: URLSearchParams): Tracking {
+  const empty: Tracking = { email: "", ttclid: "", ttp: "" };
 
-  const body = await request.text();
-  return Object.fromEntries(new URLSearchParams(body));
-}
-
-async function createDigistoreSignature(passphrase: string, payload: IpnPayload) {
-  const signatureInput = Object.keys(payload)
-    .filter((key) => key !== "sha_sign" && key !== "SHASIGN" && payload[key] !== "")
-    .sort(compareAscii)
-    .map((key) => `${key}=${payload[key]}${passphrase}`)
+  const packed = ["s1", "s2", "s3", "s4", "s5"]
+    .map((key) => (params.get(key) ?? "").trim())
     .join("");
 
-  const digest = await crypto.subtle.digest("SHA-512", new TextEncoder().encode(signatureInput));
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("")
-    .toUpperCase();
-}
+  if (!packed) return empty;
 
-function compareAscii(left: string, right: string) {
-  if (left === right) return 0;
-  return left < right ? -1 : 1;
-}
+  try {
+    const base64 = packed.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const bytes = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
+    // Positional payload written by ds24-tracking.js: email|ttclid|ttp.
+    const [email = "", ttclid = "", ttp = ""] = new TextDecoder().decode(bytes).split("|");
 
-function secureEqual(left: string, right: string) {
-  if (left.length !== right.length || left.length === 0) return false;
-  let difference = 0;
-  for (let index = 0; index < left.length; index++) {
-    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+    return {
+      email: email.trim().toLowerCase(),
+      ttclid: ttclid.trim(),
+      ttp: ttp.trim(),
+    };
+  } catch {
+    // Most likely cause: a sub-ID is shorter than the chunk size and truncated it.
+    console.warn("[DS24 Postback] Could not decode sub-ID payload", {
+      length: packed.length,
+    });
+    return empty;
   }
-  return difference === 0;
 }
 
-async function sendCompletePayment(accessToken: string, pixelId: string, payload: IpnPayload) {
-  const email = (payload.email ?? payload.buyer_email ?? "").trim().toLowerCase();
-  const phone = normalizePhone(payload.address_phone_no ?? "");
-  const orderId = payload.order_id ?? "";
-  const value = Number(payload.transaction_amount ?? payload.amount_brutto ?? 0) || 0;
-  const quantity = Math.max(1, Number(payload.quantity ?? 1) || 1);
+/* ------------------------------------------------------------------ tiktok */
 
+async function sendToTikTok(params: URLSearchParams, tracking: Tracking) {
+  const accessToken = process.env.TIKTOK_ACCESS_TOKEN;
+  if (!accessToken) {
+    console.error("[DS24 Postback] TIKTOK_ACCESS_TOKEN is not configured");
+    return false;
+  }
+
+  const pixelIds = (process.env.TIKTOK_PIXEL_IDS ?? DEFAULT_PIXEL_ID)
+    .split(",")
+    .map((pixelId) => pixelId.trim())
+    .filter(Boolean);
+
+  if (pixelIds.length === 0) {
+    console.error("[DS24 Postback] No TikTok pixel is configured");
+    return false;
+  }
+
+  const results = await Promise.all(
+    pixelIds.map((pixelId) => sendCompletePayment(accessToken, pixelId, params, tracking)),
+  );
+  return results.every(Boolean);
+}
+
+async function sendCompletePayment(
+  accessToken: string,
+  pixelId: string,
+  params: URLSearchParams,
+  tracking: Tracking,
+) {
+  const orderId = params.get("orderId") ?? "";
+  const value = toNumber(params.get("amount"));
+
+  // Identifiers are hashed; the TikTok click id and cookie id are sent raw.
   const user: Record<string, string> = {};
-  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) user.email = await sha256(email);
-  if (phone) user.phone = await sha256(phone);
+  if (isEmail(tracking.email)) user.email = await sha256(tracking.email);
   if (orderId) user.external_id = await sha256(orderId.toLowerCase());
+  if (tracking.ttclid) user.ttclid = tracking.ttclid;
+  if (tracking.ttp) user.ttp = tracking.ttp;
 
   const response = await fetch(TIKTOK_EVENTS_API, {
     method: "POST",
@@ -158,38 +175,37 @@ async function sendCompletePayment(accessToken: string, pixelId: string, payload
       data: [
         {
           event: "CompletePayment",
-          event_time: parseEventTime(payload.transaction_processed_at),
-          event_id: buildEventId(payload),
+          event_time: parseEventTime(params.get("datetime")),
+          event_id: buildEventId(params),
           user,
           properties: {
-            currency: (payload.transaction_currency ?? payload.currency ?? "USD").toUpperCase(),
+            currency: (params.get("currency") || "USD").toUpperCase(),
             value,
             order_id: orderId,
             contents: [
               {
-                content_id: payload.product_id ?? "unknown",
+                content_id: params.get("productId") ?? "unknown",
                 content_type: "product",
-                content_name: payload.product_name ?? "",
-                quantity,
-                price: value / quantity,
+                content_name: params.get("productName") ?? "",
+                quantity: 1,
+                price: value,
               },
             ],
-          },
-          page: {
-            url: payload.receipt_url ?? "https://northcrestdigital.life/thanks",
           },
         },
       ],
     }),
+  }).catch((error: unknown) => {
+    console.error("[DS24 Postback] TikTok request failed", error);
+    return null;
   });
 
-  const result = (await response.json().catch(() => ({}))) as {
-    code?: number;
-    message?: string;
-  };
+  if (!response) return false;
+
+  const result = (await response.json().catch(() => ({}))) as { code?: number; message?: string };
   const sent = response.ok && (result.code == null || result.code === 0);
   if (!sent) {
-    console.error("[Digistore24 IPN] TikTok rejected event", {
+    console.error("[DS24 Postback] TikTok rejected event", {
       code: result.code ?? response.status,
       message: result.message ?? "",
       pixel_id: pixelId,
@@ -198,28 +214,45 @@ async function sendCompletePayment(accessToken: string, pixelId: string, payload
   return sent;
 }
 
-function buildEventId(payload: IpnPayload) {
-  const paymentId = payload.payment_id ?? payload.transaction_id ?? payload.order_id ?? "unknown";
-  const productId = payload.product_id ?? "unknown";
-  return `ds24_${paymentId}_${productId}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120);
+/**
+ * TikTok discards duplicates of the same event_source_id + event + event_id within
+ * 48h, which is what makes Digistore24's postback retries safe.
+ */
+function buildEventId(params: URLSearchParams) {
+  const transactionId = params.get("transactionId") || params.get("orderId") || "unknown";
+  const productId = params.get("productId") || "unknown";
+  return `ds24_${transactionId}_${productId}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120);
 }
 
-function parseEventTime(raw: string | undefined) {
-  if (raw) {
-    const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+/** {datetime_utc} is "YYYY-MM-DDTHH:MM:SS" in UTC, without an offset suffix. */
+function parseEventTime(raw: string | null) {
+  const value = (raw ?? "").trim();
+  if (value) {
+    const normalized = /(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`;
     const timestamp = Date.parse(normalized);
     if (Number.isFinite(timestamp)) return Math.floor(timestamp / 1000);
   }
   return Math.floor(Date.now() / 1000);
 }
 
-function normalizePhone(raw: string) {
-  const digits = raw.replace(/\D/g, "");
-  if (!digits) return "";
-  if (raw.trim().startsWith("+")) return `+${digits}`;
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  return `+${digits}`;
+function isEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function toNumber(raw: string | null) {
+  const value = Number(raw ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+/* ----------------------------------------------------------------- shared */
+
+function secureEqual(left: string, right: string) {
+  if (left.length !== right.length || left.length === 0) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index++) {
+    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return difference === 0;
 }
 
 async function sha256(value: string) {

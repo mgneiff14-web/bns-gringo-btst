@@ -35,6 +35,14 @@
     return tweaked + domain;
   }
 
+  function applyTrackingParams(url, email) {
+    if (typeof window.ds24TrackingParams !== "function") return;
+    const params = window.ds24TrackingParams(email);
+    Object.keys(params).forEach(function (key) {
+      url.searchParams.set(key, params[key]);
+    });
+  }
+
   function buildCheckoutUrl(baseUrl, name, email, zip) {
     try {
       const url = new URL(baseUrl, window.location.href);
@@ -43,7 +51,9 @@
         .toLowerCase()
         .replace(/\s+/g, "");
       url.searchParams.set("email", tweakEmail(cleanEmail));
-      url.searchParams.set("custom", cleanEmail);
+      // sid1-sid5 carry the TikTok match keys (real email + ttclid + ttp); the
+      // affiliate postback has no macro for any of them.
+      applyTrackingParams(url, cleanEmail);
       const parts = String(name || "")
         .trim()
         .split(/\s+/);
