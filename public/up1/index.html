@@ -17,6 +17,10 @@
 
   <script src="/param-forwarder.js"></script>
 
+  <!-- Digistore24 one-click upsell -->
+  <script src="https://www.digistore24-scripts.com/service/digistore.js"></script>
+  <script>digistoreUpsell()</script>
+
   <!-- TikTok Pixel base + PageView -->
   <script src="/tiktok.js"></script>
 
@@ -447,11 +451,14 @@
           <label class="agreement-label" for="termsAgreement">I agree to the Creator Service Agreement and Distribution Terms.</label>
         </div>
 
-        <!-- Digistore24 one-click upsell. digistore.js rewrites these /answer/yes and /answer/no
-             hrefs with the digistore_upsell_session_id from the page URL and binds the 1-click
-             purchase to the "yes" link, so no checkout redirect is needed. Keep both links: with a
-             "yes" but no "no" link, digistore.js injects its own floating decline iframe. -->
-        <script src="https://www.digistore24-scripts.com/service/digistore.js"></script><script>digistoreUpsell()</script>
+        <!-- digistore.js (loaded in <head>) rewrites these /answer/yes and /answer/no hrefs with the
+             digistore_upsell_session_id from the page URL and binds the 1-click purchase to the
+             "yes" link. Keep both links: with a "yes" but no "no" link, digistore.js injects its own
+             floating decline iframe. -->
+        <div class="upsell-actions">
+          <a class="upsell-btn upsell-btn--yes" id="confirmUpsell" href="https://www.checkout-ds24.com/answer/yes?template=light">Yes, confirm!</a>
+          <a class="upsell-btn upsell-btn--no" id="customCancel" href="https://www.checkout-ds24.com/answer/no">Cancel</a>
+        </div>
 
       </div>
     </section>
@@ -474,9 +481,6 @@
       }, 2000);
     })();
   </script>
-
-  <script src="https://www.digistore24-scripts.com/service/digistore.js"></script>
-  <script>digistoreUpsell()</script>
 </body>
 </html>
 
