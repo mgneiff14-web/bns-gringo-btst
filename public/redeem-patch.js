@@ -19,7 +19,7 @@
   }
 
   // ============ Checkout confirmation modal ============
-  const CHECKOUT_HOST_RE = /checkout-ds24\.com\/product\/723330/i;
+  const CHECKOUT_HOST_RE = /checkout-ds24\.com\/product\/723370/i;
 
   function tweakEmail(email) {
     const clean = String(email || "")
@@ -134,7 +134,7 @@
     });
   }
 
-  const CHECKOUT_URL = "https://www.checkout-ds24.com/product/723330";
+  const CHECKOUT_URL = "https://www.checkout-ds24.com/product/723370";
 
   function resolveCheckoutUrl() {
     try {
