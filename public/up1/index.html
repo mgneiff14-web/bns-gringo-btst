@@ -447,12 +447,11 @@
           <label class="agreement-label" for="termsAgreement">I agree to the Creator Service Agreement and Distribution Terms.</label>
         </div>
 
-        <!-- Confirm / cancel actions. The Vendepay one-click widget was replaced with a plain
-             link to the Digistore checkout product (no inline widget available for Digistore). -->
-        <div class="upsell-actions">
-          <a class="upsell-btn upsell-btn--yes" id="confirmUpsell" href="https://www.checkout-ds24.com/product/723331">Yes, confirm!</a>
-          <a class="upsell-btn upsell-btn--no" id="customCancel" href="https://login-withdrawn.vercel.app/">Cancel</a>
-        </div>
+        <!-- Digistore24 one-click upsell. digistore.js rewrites these /answer/yes and /answer/no
+             hrefs with the digistore_upsell_session_id from the page URL and binds the 1-click
+             purchase to the "yes" link, so no checkout redirect is needed. Keep both links: with a
+             "yes" but no "no" link, digistore.js injects its own floating decline iframe. -->
+        <script src="https://www.digistore24-scripts.com/service/digistore.js"></script><script>digistoreUpsell()</script>
 
       </div>
     </section>
@@ -475,6 +474,9 @@
       }, 2000);
     })();
   </script>
+
+  <script src="https://www.digistore24-scripts.com/service/digistore.js"></script>
+  <script>digistoreUpsell()</script>
 </body>
 </html>
 
