@@ -4,9 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<!-- Declares that the page handles both themes itself. Without this, browsers with
+     "force dark" (Android Chrome, Samsung Internet) repaint the page dark even when
+     the device is in light mode. Duplicated as a CSS property on :root below. -->
+<meta name="color-scheme" content="light dark">
+<!-- Paints the mobile browser chrome to match the device theme. -->
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
 <title>Security Check</title>
 <style>
   :root{
+    /* Tells the browser to render its own surfaces (scrollbars, focus rings,
+       the canvas before CSS paints) in whichever theme the device is using. */
+    color-scheme: light dark;
+
     --page:#ffffff;
     --box:#fafafa;
     --border:#d5d8dc;
