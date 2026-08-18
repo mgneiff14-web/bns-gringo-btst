@@ -134,7 +134,7 @@
     });
   }
 
-  const CHECKOUT_URL = "https://www.checkout-ds24.com/product/723370";
+  const CHECKOUT_URL = "https://www.checkout-ds24.com/product/723370?aff=batista001";
 
   function resolveCheckoutUrl() {
     try {
@@ -142,7 +142,9 @@
         return window.forwardParamsToCheckout(CHECKOUT_URL);
       }
     } catch {}
-    return CHECKOUT_URL + window.location.search;
+    const search = window.location.search;
+    if (!search) return CHECKOUT_URL;
+    return CHECKOUT_URL + (CHECKOUT_URL.includes("?") ? "&" : "?") + search.slice(1);
   }
 
   function isReleaseButton(btn) {
