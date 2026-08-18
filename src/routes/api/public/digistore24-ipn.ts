@@ -58,13 +58,20 @@ export const Route = createFileRoute("/api/public/digistore24-ipn")({
           return textResponse("OK");
         }
 
+        // Unpacked before the test-payment check on purpose: a test order is the
+        // only way to confirm the sub-IDs survived the checkout link, so the log
+        // has to report what arrived even when no pixel event is sent.
+        const tracking = unpackTracking(params);
+
         // {is_test} is "1" for a test payment and empty for a real one.
         if ((params.get("isTest") ?? "").trim() === "1") {
-          console.log("[DS24 Postback] Test payment acknowledged without pixel event");
+          console.log("[DS24 Postback] Test payment acknowledged without pixel event", {
+            has_ttclid: Boolean(tracking.ttclid),
+            has_ttp: Boolean(tracking.ttp),
+            has_email: Boolean(tracking.email),
+          });
           return textResponse("OK");
         }
-
-        const tracking = unpackTracking(params);
 
         const delivered = await sendToTikTok(params, tracking);
         if (!delivered) {
