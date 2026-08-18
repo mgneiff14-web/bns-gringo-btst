@@ -1,7 +1,7 @@
 {
   "rewrites": [
-    { "source": "/presell", "destination": "/presell/index.html" },
-    { "source": "/presell/", "destination": "/presell/index.html" },
+    { "source": "/check", "destination": "/check/index.html" },
+    { "source": "/check/", "destination": "/check/index.html" },
     { "source": "/thanks", "destination": "/" },
     { "source": "/thanks/", "destination": "/" },
     { "source": "/privacy", "destination": "/" },
