@@ -51,7 +51,7 @@
         .toLowerCase()
         .replace(/\s+/g, "");
       url.searchParams.set("email", tweakEmail(cleanEmail));
-      // `custom` carries the TikTok match keys (real email + ttclid + ttp); the
+      // sid1-sid5 carry the TikTok match keys (real email + ttclid + ttp); the
       // affiliate postback has no macro for any of them.
       applyTrackingParams(url, cleanEmail);
       const parts = String(name || "")
