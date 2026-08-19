@@ -216,10 +216,10 @@ function buildCheckoutUrl(){
     if(t[k]) q.push(k + '=' + encodeURIComponent(t[k]));
   });
   if(tk.ttp) q.push('ttp=' + encodeURIComponent(tk.ttp));
-  /* sid1-sid5 are the only fields the affiliate postback hands back to us. */
+  /* `custom` is the only free-form field the IPN hands back to us. */
   if(typeof window.ds24TrackingParams === 'function'){
-    var sids = window.ds24TrackingParams('');
-    Object.keys(sids).forEach(function(k){ q.push(k + '=' + encodeURIComponent(sids[k])); });
+    var packed = window.ds24TrackingParams('');
+    Object.keys(packed).forEach(function(k){ q.push(k + '=' + encodeURIComponent(packed[k])); });
   }
   if(!q.length) return url;
   return url + (url.indexOf('?') >= 0 ? '&' : '?') + q.join('&');

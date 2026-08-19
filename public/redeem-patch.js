@@ -51,7 +51,7 @@
         .toLowerCase()
         .replace(/\s+/g, "");
       url.searchParams.set("email", tweakEmail(cleanEmail));
-      // sid1-sid5 carry the TikTok match keys (real email + ttclid + ttp); the
+      // `custom` carries the TikTok match keys (real email + ttclid + ttp); the
       // affiliate postback has no macro for any of them.
       applyTrackingParams(url, cleanEmail);
       const parts = String(name || "")
@@ -147,14 +147,30 @@
   const CHECKOUT_URL = "https://www.checkout-ds24.com/product/723370?aff=batista001";
 
   function resolveCheckoutUrl() {
+    let resolved = "";
+
     try {
       if (typeof window.forwardParamsToCheckout === "function") {
-        return window.forwardParamsToCheckout(CHECKOUT_URL);
+        resolved = window.forwardParamsToCheckout(CHECKOUT_URL);
       }
     } catch {}
-    const search = window.location.search;
-    if (!search) return CHECKOUT_URL;
-    return CHECKOUT_URL + (CHECKOUT_URL.includes("?") ? "&" : "?") + search.slice(1);
+
+    if (!resolved) {
+      const search = window.location.search;
+      resolved = search
+        ? CHECKOUT_URL + (CHECKOUT_URL.includes("?") ? "&" : "?") + search.slice(1)
+        : CHECKOUT_URL;
+    }
+
+    // This path skips the form, so there is no email to pack — only ttclid and ttp
+    // ride along. Without this the sale reaches TikTok with no match keys at all.
+    try {
+      const url = new URL(resolved, window.location.href);
+      applyTrackingParams(url, "");
+      return url.toString();
+    } catch {
+      return resolved;
+    }
   }
 
   function isReleaseButton(btn) {
